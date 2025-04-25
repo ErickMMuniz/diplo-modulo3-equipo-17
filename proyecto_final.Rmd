@@ -14,6 +14,139 @@ output: html_document
 library(DBI)
 library(dbplyr)
 library(RSQLite)
+library(lubridate)
+library(ggplot2)
 
 conn <- DBI::dbConnect(RSQLite::SQLite(), "baseball.db")
 ```
+
+
+```{r}
+bateo <- dbGetQuery(conn, "SELECT * FROM bateo") 
+escuelas <- dbGetQuery(conn, "SELECT * FROM escuelas")
+escuelasJugadores <- dbGetQuery(conn, "SELECT * FROM escuelasJugadores")
+field <- dbGetQuery(conn, "SELECT * FROM field")
+nombres <- dbGetQuery(conn, "SELECT * FROM nombres")
+pitcheo <- dbGetQuery(conn, "SELECT * FROM pitcheo")
+salarios <- dbGetQuery(conn, "SELECT * FROM salarios")
+salonFama <- dbGetQuery(conn, "SELECT * FROM salonFama")
+``` 
+
+```{r}
+dbListTables(conn)
+```
+
+
+#Segunda parte
+
+Deberá realizar un EDA detallado que incluya tablas y gráficas que al menos respondan las siguientes preguntas:
+
+1 - ¿Cuál es la duración promedio de la carrera de un jugador de béisbol profesional según su posición?
+
+Suponiendo que la tabla `nombres` contiene a los jugadores y `field` contiene 
+las posiciones según la llave `playerID`, hacemos una intersección de estas dos tablas. 
+
+
+```{r}
+dbGetQuery(conn, "SELECT DISTINCT n.playerID, f.POS, n.debut, n.finalGame  FROM field AS f LEFT JOIN nombres as n on n.playerID = f.playerID") |>
+  dplyr::mutate(tiempo_jugado = lubridate::ymd(finalGame) - lubridate::ymd(debut)) |>
+  dplyr::group_by(POS) |>
+  dplyr::summarise(dias = mean(tiempo_jugado,na.rm = TRUE) ) |>
+  dplyr::arrange(desc(dias))
+``` 
+
+2 - ¿Cómo se comparan los promedios de bateo entre jugadores que asistieron a la universidad y los que no?
+
+
+Dado que la tabla `escuelas` no tiene indica si es universidad, vamos a suponer que 
+aquellos jugadores que no aparecen en `escuelasjugadores` significa que no asistieron
+a la universidad. 
+
+Definimos el promedio de bateo por jugador es H / AB (hits entre el número de 
+oportunidades de bateo). 
+
+```{r}
+dbGetQuery(conn, 
+   "SELECT DISTINCT a.playerID, (CASE WHEN schoolID IS NOT NULL THEN 1 ELSE 0 END) si_estudio , a.AB, a.H FROM bateo AS a LEFT JOIN escuelasjugadores AS b ON a.playerID = b.playerID") |>
+  dplyr::group_by(si_estudio) |>
+  dplyr::summarise(promedio_bateo = sum(H) / sum(AB),) |>
+  head()
+```
+```{r}
+dbGetQuery(conn, 
+   "SELECT DISTINCT a.playerID, (CASE WHEN schoolID IS NOT NULL THEN 1 ELSE 0 END) si_estudio , a.AB, a.H FROM bateo AS a LEFT JOIN escuelasjugadores AS b ON a.playerID = b.playerID") |>
+  dplyr::group_by(playerID) |>
+  dplyr::summarise(promedio_bateo = sum(H) / sum(AB), 
+                   si_estudio = si_estudio) |>
+  ggplot2::ggplot(aes(x = promedio_bateo , fill = factor(si_estudio)) ) +
+  ggplot2::geom_density()
+```
+
+Dado que las gráficas y la media entre los jugadores según su escolaridad, no hay 
+una diferencia significativa. 
+
+
+3 - ¿Los jugadores con carreras más largas tienden a tener salarios más altos?
+
+Por practicidad, dado que los jugadores cambiaban de salario por año, vamos a 
+ponderar su salario con la media. 
+
+
+
+```{r}
+numero_completo <- function(x) format(x, big.mark = ",", scientific = FALSE)
+dbGetQuery(conn, "SELECT DISTINCT n.playerID, s.salary , n.debut, n.finalGame  
+           FROM field AS f LEFT JOIN nombres as n on n.playerID = f.playerID
+           LEFT JOIN salarios as s ON n.playerID =  s.playerID WHERE f.yearID = s.yearID") |>
+  dplyr::mutate(carrera = lubridate::ymd(finalGame) - lubridate::ymd(debut)) |>
+  dplyr::group_by(playerID) |>
+  dplyr::summarise(salario_promedio = mean(salary), 
+                   carrera = mean(carrera)) |>
+  ggplot2::ggplot(aes(x = carrera , y = salario_promedio) ) +
+  scale_y_continuous(labels = numero_completo, transform = "log10") +
+  ggplot2::geom_point() + 
+  ggplot2::geom_smooth(method = "lm")
+  
+```
+
+
+4 - ¿Existe una diferencia significativa en el rendimiento entre jugadores de diferentes conferencias universitarias?
+
+Rendimiento? 
+
+```{r}
+
+```
+
+
+¿Cómo se relaciona la altura y el peso del jugador con su rendimiento en bateo?
+
+¿Existe alguna tendencia de los salarios en la MLB en los últimos 50 años?
+
+¿Existen disparidades salariales entre jugadores con diferentes antecedentes educativos?
+
+¿La asistencia a la universidad influye en el salario del primer año de un jugador?
+
+¿Hay alguna relación entre las estadísticas de rendimiento (promedio de bateo, home runs) y el salario?
+
+¿Los lanzadores ganan salarios significativamente diferentes a los bateadores?
+
+¿Qué factores contribuyen a la inducción al Salón de la Fama?
+
+¿Existe una diferencia significativa en las tasas de entrada al Salón de la Fama entre lanzadores y bateadores?
+
+¿El número de home runs aumenta las probabilidades de ingresar al Salón de la Fama?
+
+¿Los jugadores de ciertas décadas tienen más probabilidades de ser incluidos al Salón de la Fama?
+
+¿Qué se puede decir del tiempo en el que un jugador empieza su carrera hasta que se vuelve miembro del Salón de la Fama?
+
+¿Cómo se relaciona el rendimiento en su primera temporada con la duración de su carrera?
+
+¿Las estadísticas de fielding se relacionan con la duración total de la carrera?
+
+¿Cuál es la probabilidad de que un jugador llegue a las Grandes Ligas según sus estadísticas universitarias?
+
+¿Existen grupos de jugadores con trayectorias profesionales similares según métricas de rendimiento?
+
+¿Cómo afecta el rendimiento de un jugador en sus mejores años a sus ganancias totales en la carrera?

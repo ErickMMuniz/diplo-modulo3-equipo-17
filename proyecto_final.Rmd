@@ -350,7 +350,16 @@ nombres %>% dplyr::mutate(year_debut = year(ymd(debut)),
 15. ¿Qué se puede decir del tiempo en el que un jugador empieza su carrera hasta que se vuelve miembro del Salón de la Fama?
 
 ```{r}
-
+nombres %>% dplyr::mutate(year_debut = year(ymd(debut)),
+                          year_FG = year(ymd(finalGame))) %>% 
+  select(year_debut, year_FG, playerID) %>% 
+  dplyr::left_join(sf1, by = 'playerID') %>% 
+  filter(!is.na(inducted) & !is.na(year_debut)) %>% 
+  select(year_debut, yearID, year_FG, playerID) %>% 
+  dplyr::mutate(year_actives = year_FG - year_debut,
+                year_retirement = yearID - year_FG) %>% 
+  dplyr::summarise(year_actives_avg = mean(year_actives),
+                   year_retirement_avg = mean(year_retirement))
 ```
 
 

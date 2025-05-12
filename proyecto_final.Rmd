@@ -15,6 +15,9 @@ library(DBI)
 library(dbplyr)
 library(RSQLite)
 library(visdat)
+library(skimr)
+library(dm)
+library(DiagrammeR)
 conn <- DBI::dbConnect(RSQLite::SQLite(), "baseball.db")
 ```
 
@@ -102,6 +105,125 @@ pitcheo %>%  dplyr::slice_min(G, n = 10000) %>% vis_miss()
 pitcheo %>%  dplyr::slice_sample(n = 10000) %>% vis_miss()
 ```
 
+5. Administrador del equipo. Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que use funciones de la librería {skimr} para obtener un resumen del tipo de variables, resumen de variables numéricas y resumen de variables categóricas para cada uno de los datasets que creo el Colaborador 1. Adicionalmente, hacer un diagrama de cómo se relacionan todas las tablas de la base de datos. Hacer commit y push del código al repositorio del administrador y revisar los pull requests de los colaboradores 1 y 2.
+
+Hagamos primero los resumenes del tipo de variables para cada uno de los datasets que generó el colaborador 1. 
+
+```{r}
+bateo %>% skim()
+bateo %>%
+  skim() %>%
+  yank("numeric")
+bateo %>%
+  skim() %>%
+  yank("character")
+```
 
 
+
+```{r}
+escuelas %>% skim()
+escuelas %>%
+  skim() %>%
+  yank("numeric")
+escuelas %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+escuelasJugadores %>% skim()
+escuelasJugadores %>%
+  skim() %>%
+  yank("numeric")
+escuelasJugadores %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+field %>% skim()
+field %>%
+  skim() %>%
+  yank("numeric")
+field %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+nombres %>% skim()
+nombres %>%
+  skim() %>%
+  yank("numeric")
+nombres %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+pitcheo %>% skim()
+pitcheo %>%
+  skim() %>%
+  yank("numeric")
+pitcheo %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+salarios %>% skim()
+salarios %>%
+  skim() %>%
+  yank("numeric")
+salarios %>%
+  skim() %>%
+  yank("character")
+```
+
+```{r}
+salonFama %>% skim()
+salonFama %>%
+  skim() %>%
+  yank("numeric")
+salonFama %>%
+  skim() %>%
+  yank("character")
+```
+
+Ahora, generamos un diagrama entidad relación. 
+
+```{r}
+tables <- dbListTables(conn)
+tbls <- setNames(lapply(tables, function(tbl) tbl(conn, tbl)), tables)
+
+dm_obj <- dm(
+  !!!tbls  
+)
+
+dm_obj <- dm_obj |> 
+  #Llaves primarias
+  dm_add_pk(nombres, playerID) |>
+  dm_add_pk(bateo, playerID) |>
+  dm_add_pk(escuelasJugadores, playerID) |>
+  dm_add_pk(field, playerID) |>
+  dm_add_pk(salarios, playerID) |>
+  dm_add_pk(pitcheo, playerID) |>
+  dm_add_pk(salonFama, playerID) |>
+  dm_add_pk(escuelas, schoolID) |>
+  # Relacionando llaves
+  dm_add_fk(nombres, playerID, bateo) |>
+  dm_add_fk(nombres, playerID, escuelasJugadores) |>
+  dm_add_fk(nombres, playerID, salarios) |>
+  dm_add_fk(nombres, playerID, pitcheo) |>
+  dm_add_fk(nombres, playerID, field) |>
+  dm_add_fk(nombres, playerID, salonFama)
+  
+
+dm_draw(dm_obj)
+```
+
+Como podemos ver del código anterior, el modelo de entidad relación nos permite relacionar pares de tablas a través de los valores referenciados en sus columnas. Para ello, se tienen las llaves primarias y llaves foráneas para conectar las tablar en un oreden correcto y definir un esquema de la DB y poner autoegenerar el diagrama de entidad relacion. 
+
+Para el caso de baseball.db, tenemos que agregar las relaciones a mano. En lo particular, podemos notar que toda la información se relaciona a partir de la llave primaria `playerID`.  
 

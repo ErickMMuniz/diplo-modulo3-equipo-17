@@ -1,24 +1,24 @@
 ---
 title: "Proyecto final módulo 3"
-author: "Equipo - n"
+author: "Equipo - 17"
 output: html_document
 ---
 
 # Integrantes:
 
-+ Integrante 1. Rol: Administrador
-+ Integrante 2. Rol: Colaborador 1
-+ Integrante 3. Rol: Colaborador 2
++ Erick Muñiz Morales. Rol: Administrador
++ Hendrix Roberto Olvera Barbecho. Rol: Colaborador 1
++ Francisco Eduardo Díaz Barrios. Rol: Colaborador 2
 
 ```{r}
 library(DBI)
 library(dbplyr)
 library(RSQLite)
-
+library(visdat)
 conn <- DBI::dbConnect(RSQLite::SQLite(), "baseball.db")
 ```
 
-3. Colaborador 1: Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que muestre el número de tablas y sus nombres de la base de datos "baseball"; además, crear un objeto en R, un por cada tabla de la base de datos. Hacer commit y push del código al repositorio del administrador y hacer un pull request.
+3. Instrucciones Colaborador 1: Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que muestre el número de tablas y sus nombres de la base de datos "baseball"; además, crear un objeto en R, un por cada tabla de la base de datos. Hacer commit y push del código al repositorio del administrador y hacer un pull request.
 
 ```{r}
 dbListTables(conn)
@@ -34,3 +34,74 @@ pitcheo <- dbGetQuery(conn, "SELECT * FROM pitcheo")
 salarios <- dbGetQuery(conn, "SELECT * FROM salarios")
 salonFama <- dbGetQuery(conn, "SELECT * FROM salonFama")
 ``` 
+
+4. Instrucciones Colaborador 2: 
+
+Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que use las funciones vis_dat() y vis_miss() de la librería {visdat} para analizar los tipos de datos y datos faltantes de cada una de las tablas generadas por el Colaborador 1. Debe corregir la línea author: "Equipo - n" con el número correcto de equipo y agregar los nombres completos de los integrantes en la sección de # Integrantes. Hacer commit y push del código al repositorio del administrador y hacer un pull request.
+
+
+```{r}
+escuelas %>% vis_dat()
+escuelasJugadores %>% vis_dat()
+nombres %>% vis_dat()
+salarios %>% vis_dat()
+```
+
+
+```{r}
+bateo %>%  dplyr::slice_head( n = 10000 ) %>% vis_dat()
+bateo %>%  dplyr::slice_tail(n = 10000) %>% vis_dat()
+bateo %>%  dplyr::slice_max(G, n = 10000) %>% vis_dat( )
+bateo %>%  dplyr::slice_min(G, n = 10000) %>% vis_dat()
+bateo %>%  dplyr::slice_sample(n = 10000) %>% vis_dat()
+```
+```{r}
+field %>%  dplyr::slice_head( n = 10000 ) %>% vis_dat()
+field %>%  dplyr::slice_tail(n = 10000) %>% vis_dat()
+field %>%  dplyr::slice_max(G, n = 10000) %>% vis_dat( )
+field %>%  dplyr::slice_min(G, n = 10000) %>% vis_dat()
+field %>%  dplyr::slice_sample(n = 10000) %>% vis_dat()
+```
+
+```{r}
+pitcheo %>%  dplyr::slice_head( n = 10000 ) %>% vis_dat()
+pitcheo %>%  dplyr::slice_tail(n = 10000) %>% vis_dat()
+pitcheo %>%  dplyr::slice_max(G, n = 10000) %>% vis_dat( )
+pitcheo %>%  dplyr::slice_min(G, n = 10000) %>% vis_dat()
+pitcheo %>%  dplyr::slice_sample(n = 10000) %>% vis_dat()
+```
+
+```{r}
+escuelas %>% vis_miss()
+escuelasJugadores %>% vis_miss()
+nombres %>% vis_miss()
+salarios %>% vis_miss()
+```
+
+
+```{r}
+bateo %>%  dplyr::slice_head( n = 10000 ) %>% vis_miss()
+bateo %>%  dplyr::slice_tail(n = 10000) %>% vis_miss()
+bateo %>%  dplyr::slice_max(G, n = 10000) %>% vis_miss( )
+bateo %>%  dplyr::slice_min(G, n = 10000) %>% vis_miss()
+bateo %>%  dplyr::slice_sample(n = 10000) %>% vis_miss()
+```
+```{r}
+field %>%  dplyr::slice_head( n = 10000 ) %>% vis_miss()
+field %>%  dplyr::slice_tail(n = 10000) %>% vis_miss()
+field %>%  dplyr::slice_max(G, n = 10000) %>% vis_miss( )
+field %>%  dplyr::slice_min(G, n = 10000) %>% vis_miss()
+field %>%  dplyr::slice_sample(n = 10000) %>% vis_miss()
+```
+
+```{r}
+pitcheo %>%  dplyr::slice_head( n = 10000 ) %>% vis_miss()
+pitcheo %>%  dplyr::slice_tail(n = 10000) %>% vis_miss()
+pitcheo %>%  dplyr::slice_max(G, n = 10000) %>% vis_miss( )
+pitcheo %>%  dplyr::slice_min(G, n = 10000) %>% vis_miss()
+pitcheo %>%  dplyr::slice_sample(n = 10000) %>% vis_miss()
+```
+
+
+
+

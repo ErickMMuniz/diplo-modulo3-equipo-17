@@ -48,6 +48,7 @@ escuelas %>% vis_dat()
 escuelasJugadores %>% vis_dat()
 nombres %>% vis_dat()
 salarios %>% vis_dat()
+salonFama %>% vis_dat()
 ```
 
 
@@ -66,6 +67,7 @@ field %>%  dplyr::slice_min(G, n = 10000) %>% vis_dat()
 field %>%  dplyr::slice_sample(n = 10000) %>% vis_dat()
 ```
 
+
 ```{r}
 pitcheo %>%  dplyr::slice_head( n = 10000 ) %>% vis_dat()
 pitcheo %>%  dplyr::slice_tail(n = 10000) %>% vis_dat()
@@ -79,6 +81,7 @@ escuelas %>% vis_miss()
 escuelasJugadores %>% vis_miss()
 nombres %>% vis_miss()
 salarios %>% vis_miss()
+salonFama %>% vis_miss()
 ```
 
 
@@ -118,8 +121,6 @@ bateo %>%
   skim() %>%
   yank("character")
 ```
-
-
 
 ```{r}
 escuelas %>% skim()
@@ -226,4 +227,43 @@ dm_draw(dm_obj)
 Como podemos ver del código anterior, el modelo de entidad relación nos permite relacionar pares de tablas a través de los valores referenciados en sus columnas. Para ello, se tienen las llaves primarias y llaves foráneas para conectar las tablar en un oreden correcto y definir un esquema de la DB y poner autoegenerar el diagrama de entidad relacion. 
 
 Para el caso de baseball.db, tenemos que agregar las relaciones a mano. En lo particular, podemos notar que toda la información se relaciona a partir de la llave primaria `playerID`.  
+
+### Comentarios Colaborador 2: 
+
+#### Subconjunto 1: bateo
+
+El subconjunto cuenta con variables categoricas completas donde se resalta el playerID que identifica al jugador (y esta relacionado con la mayoría de las tablas), se observa que hay 149 diferentes equipos y 7 ligas. Por su parte en las variables numéricas, hay datos faltantes y siendo más significativo (mayor al 30%) en las columnas SH (hits de sacrificio) y GIDP (ponchado en un doble play) además se debe notar que los jugadores son un intervalo de caso 150 años.
+
+
+#### Subconjunto 2: escuelas
+
+El subconjunto solamente cuenta con variables del tipo cat-egoricas y son las 1208 posibles escuelas de las que provienen los jugadores, donde se destaca que hay jugadores que provienen de escuelas de 11 observaciones que estan catalogados en nuestros datos como países diferentes. Esta tabla esta relacionada con algunas de las otras por la columna school ID.
+
+#### Subconjunto 3: escuelasJugadores 
+
+Este subconjunto de datos que solmente cuenta con variables categoricas y además no tiene datos faltantes. Relaciona a los jugadores (player ID) (a los que asistieron) con las escuela a la que asistieron y el año en el que asistieron. Guarda relacion la cantidad de escuelas que se encuentran con el subconjunto "escuelas" puesto que es un número menor.
+
+#### Subconjunto 4: field
+
+Cuenta con variables categoricas con datos referentes al año que el jugador estuvo con un cierto equipo. En las variables numéricas se debe notar que se tienen variables (PB, WP, SB, CS y ZR) con datos que solo pueden ser utiles si se estudia un cierto grupo de jugadores (los catchers) querepresentan a menos del 1% de los datos de esta tabla. 
+
+#### Subconjunto 5: nombres
+
+Este subconjunto cuenta con datos personales de los jugadores (más allá de lo extrictamente relacionado con el baseball), contiene variables númericas y categóricas y en esta tabla las mayoría de datos faltantes se relaciona con su fecha o lugar de muerte. Se puede resaltar que de más de 21 mil jugadores solo se tienen 2680 diferentes nombres, 10576 apeliidos y 13977 apodos. 
+
+
+#### Subconjunto 6: pitcheo
+
+Contiene variables categoricas y numéricas, las variables numéricas que contiene la mayor cantidad de datos faltantes es la misma que en la tabla de bateo, además es notable la variable IBB. Y el también el año promedio de yearID de jugador es mayor para esta tabla. 
+
+#### Subconjunto 7: salarios
+
+Este subconjunto no tiene datos faltantes y contiene variables categoricas y numéricas donde se relaciona cada jugador con el año y cuanto cobro durante ese año y con que equipo respectivamente. Estos datos son más recientes y de un periodo más corto respecto al total de los datos, abarcando de  1985-2016, además hay una brecha salarial marcada por los años, siendo el salario más alto de 33 millones.
+
+
+#### Subconjunto 8: salonFama
+
+Este subconjunto contiene variables categoricas sin perdida de datos, donde se relaciona a cada jugador si fue o no inducido al salón de la fama y el tipo de votación, por su parte en las variables númericas se obtiene datos de los votos necesarios para ser inducido.
+
+
 

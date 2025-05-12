@@ -539,8 +539,76 @@ dbGetQuery(conn,
 
 11. ¿Qué factores contribuyen a la inducción al Salón de la Fama?
 
+Conideremos factores simples para como el tiempo de carrera, el rendimiento de bateo y
+el pitcheo.
+
+```{r}
+# Los verdaderos jugadores que entraron al salon de la fama. 
+salon_fama_jugadores <- salonFama %>%
+  filter(category == "Player")
+
+# Rendimiento de bateo
+bateo <- bateo |>
+  group_by(playerID) |>
+  summarise(
+    bateo_calculo = sum(HR, na.rm = TRUE),
+  )
+
+# años activos
+tiempo_carrera <- nombres %>%
+  mutate(
+    dias_carrera = lubridate::ymd(finalGame) - lubridate::ymd(debut)
+  )
 
 
+# Rendimiento de pitcheo
+pitcheo <- pitcheo %>%
+  group_by(playerID) %>%
+  summarise(
+    pitcheo_calculo = sum(W, na.rm = TRUE)
+  )
+
+merge(salon_fama_jugadores, bateo_stats, by = "playerID", all = TRUE) 
+
+
+general_table_fama <- salon_fama_jugadores %>%
+  left_join(bateo, by = "playerID") %>%
+  left_join(tiempo_carrera, by = "playerID") %>%
+  left_join(pitcheo, by = "playerID")
+
+```
+Generamos algunos gráficos interesantes. 
+
+```{r}
+
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=dias_carrera)) +
+  ggplot2::ggtitle("Densidad del tiempo de carrera con base en los jugadores \n inducidos al salón de la fama")
+
+```
+De lo notado de esta gráfica, podemos ver que el tiempo de carrera de los jugadores que 
+son inducidos al salón de la fama, es mayor en media y que tiene una distribución diferenciada 
+de los que no.
+
+```{r}
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=bateo_calculo)) +
+  ggplot2::ggtitle("Densidad del bateo con base en los jugadores \n inducidos al salón de la fama")
+```
+
+Del calculo de numero de bateo, no tenemos una diferencia concluyente. 
+
+```{r}
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=pitcheo_calculo)) +
+  ggplot2::ggtitle("Densidad del bateo con base en los jugadores \n inducidos al salón de la fama")
+```
+
+Del calculo de numero de picheo, tenemos una diferencia en distribuciones donde la media es mayor para los jugadores 
+inducidos. Esto quiere decir que el pitcheo puede influye un poco en la decision de entrar al salón de la fama.
 
 12. ¿Existe una diferencia significativa en las tasas de entrada al Salón de la Fama entre lanzadores y bateadores?
 

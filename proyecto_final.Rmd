@@ -12,14 +12,18 @@ output: html_document
 
 ```{r}
 library(DBI)
-library(dbplyr)
+library(dplyr)
+library(ggplot2)
 library(RSQLite)
 library(visdat)
 library(skimr)
 library(dm)
 library(DiagrammeR)
+library(cluster)
+library(factoextra)
 conn <- DBI::dbConnect(RSQLite::SQLite(), "baseball.db")
 ```
+# Primer parte
 
 3. Instrucciones Colaborador 1: Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que muestre el número de tablas y sus nombres de la base de datos "baseball"; además, crear un objeto en R, un por cada tabla de la base de datos. Hacer commit y push del código al repositorio del administrador y hacer un pull request.
 
@@ -266,4 +270,701 @@ Este subconjunto no tiene datos faltantes y contiene variables categoricas y num
 Este subconjunto contiene variables categoricas sin perdida de datos, donde se relaciona a cada jugador si fue o no inducido al salón de la fama y el tipo de votación, por su parte en las variables númericas se obtiene datos de los votos necesarios para ser inducido.
 
 
+#Segunda parte
 
+Deberá realizar un EDA detallado que incluya tablas y gráficas que al menos respondan las siguientes preguntas:
+
+1 - ¿Cuál es la duración promedio de la carrera de un jugador de béisbol profesional según su posición?
+
+Suponiendo que la tabla `nombres` contiene a los jugadores y `field` contiene 
+las posiciones según la llave `playerID`, hacemos una intersección de estas dos tablas. 
+
+Dado que son varias posiciones, colocamos las posiciones con más duración
+primero. 
+
+```{r}
+dbGetQuery(conn, "SELECT DISTINCT n.playerID, f.POS, n.debut, n.finalGame  FROM field AS f LEFT JOIN nombres as n on n.playerID = f.playerID") |>
+  dplyr::mutate(tiempo_jugado = lubridate::ymd(finalGame) - lubridate::ymd(debut)) |>
+  dplyr::group_by(POS) |>
+  dplyr::summarise(dias = mean(tiempo_jugado,na.rm = TRUE) ) |>
+  dplyr::arrange(desc(dias))
+``` 
+
+2 - ¿Cómo se comparan los promedios de bateo entre jugadores que asistieron a la universidad y los que no?
+
+
+Dado que la tabla `escuelas` no tiene indica si es universidad, vamos a suponer que 
+aquellos jugadores que no aparecen en `escuelasjugadores` significa que no asistieron
+a la universidad. 
+
+Definimos el promedio de bateo por jugador es H / AB (hits entre el número de 
+oportunidades de bateo). 
+
+```{r}
+dbGetQuery(conn, 
+   "SELECT DISTINCT a.playerID, (CASE WHEN schoolID IS NOT NULL THEN 1 ELSE 0 END) si_estudio , a.AB, a.H FROM bateo AS a LEFT JOIN escuelasjugadores AS b ON a.playerID = b.playerID") |>
+  dplyr::group_by(si_estudio) |>
+  dplyr::summarise(promedio_bateo = sum(H) / sum(AB),) |>
+  head()
+```
+
+```{r}
+dbGetQuery(conn, 
+   "SELECT DISTINCT a.playerID, (CASE WHEN schoolID IS NOT NULL THEN 1 ELSE 0 END) si_estudio , a.AB, a.H FROM bateo AS a LEFT JOIN escuelasjugadores AS b ON a.playerID = b.playerID") |>
+  dplyr::group_by(playerID) |>
+  dplyr::summarise(promedio_bateo = sum(H) / sum(AB), 
+                   si_estudio = si_estudio) |>
+  ggplot2::ggplot(aes(x = promedio_bateo , fill = factor(si_estudio)) ) +
+  ggplot2::geom_density()
+```
+
+Dado que las gráficas y la media entre los jugadores según su escolaridad, no hay 
+una diferencia significativa. 
+
+
+3 - ¿Los jugadores con carreras más largas tienden a tener salarios más altos?
+
+Por practicidad, dado que los jugadores cambiaban de salario por año, vamos a 
+ponderar su salario con la media. 
+
+
+
+```{r}
+numero_completo <- function(x) format(x, big.mark = ",", scientific = FALSE)
+dbGetQuery(conn, "SELECT DISTINCT n.playerID, s.salary , n.debut, n.finalGame  
+           FROM field AS f LEFT JOIN nombres as n on n.playerID = f.playerID
+           LEFT JOIN salarios as s ON n.playerID =  s.playerID WHERE f.yearID = s.yearID") |>
+  dplyr::mutate(carrera = lubridate::ymd(finalGame) - lubridate::ymd(debut)) |>
+  dplyr::group_by(playerID) |>
+  dplyr::summarise(salario_promedio = mean(salary), 
+                   carrera = mean(carrera)) |>
+  ggplot2::ggplot(aes(x = carrera , y = salario_promedio) ) +
+  ggplot2::scale_y_continuous(labels = numero_completo, transform = "log10") + 
+  labs(y = "Salario en USD", x = "Tiempo de carrea en días") +
+  ggplot2::geom_point() + 
+  ggplot2::geom_smooth(method = "lm") 
+  
+```
+
+Si bien conforme pasen los años existe un incremento salarial, también se puede notar que 
+la variabilidad aumenta. Así que en general, los jugadores con carreas más largas obtienen 
+más ingresos. 
+
+4 - ¿Existe una diferencia significativa en el rendimiento entre jugadores de diferentes conferencias universitarias?
+
+Basado en nuestra definición de rendimiento y que las diferentes conferencias universitarias se puede interpretar como las posiciones, gneramos el siguiente gráifco para obtener una respuesta. 
+```{r}
+dbGetQuery(conn, 
+   "SELECT playerID, H numerador, AB denominador, 'Bateo' Posicion FROM bateo 
+   UNION ALL
+   SELECT playerID, W numerador, W+L denominador, 'Pitcheo' Posicion FROM pitcheo
+   UNION ALL
+   SELECT playerID, PO + A numerador, PO + A + ifnull(E,0) denominador, 'Fildeo' Posicion FROM field") |>
+  dplyr::group_by(Posicion) %>% 
+  dplyr::summarise(rendimiento = sum(numerador) / sum(denominador)) %>% 
+  ggplot() +
+  geom_bar(aes(y = Posicion, x = rendimiento), stat = "identity", fill="#9BCD9B")
+```
+
+Por el gráfico anterior, tenemos una diferencia significativa.
+
+5. ¿Cómo se relaciona la altura y el peso del jugador con su rendimiento en bateo?
+
+```{r}
+dbGetQuery(conn, "SELECT b.playerID, ifnull(b.H,0) H, ifnull(b.AB,0) AB, n.weight, n.height FROM bateo AS b LEFT JOIN nombres as n on n.playerID = b.playerID") %>% 
+  dplyr::group_by(playerID) %>% 
+  dplyr::summarise(rendimiento = sum(H)/sum(AB),
+                   peso = mean(weight),
+                   altura = mean(height)) %>% 
+  ggplot2::ggplot(aes(x = peso , y = rendimiento) ) +
+  ggplot2::scale_x_continuous(labels = numero_completo, transform = "log10") +
+  ggplot2::ggtitle("Relacion rendimiento con el peso") + 
+  ggplot2::geom_point()
+```
+
+```{r}
+dbGetQuery(conn, "SELECT b.playerID, ifnull(b.H,0) H, ifnull(b.AB,0) AB, n.weight, n.height FROM bateo AS b LEFT JOIN nombres as n on n.playerID = b.playerID") %>% 
+  dplyr::group_by(playerID) %>% 
+  dplyr::summarise(rendimiento = sum(H)/sum(AB),
+                   peso = mean(weight),
+                   altura = mean(height)) %>%
+  ggplot2::ggplot(aes(x = altura , y = rendimiento) ) +
+  ggplot2::ggtitle("Relacion del rendimiento por la altura") +
+  ggplot2::labs(x = "Altura en inch", y = "Rendimiento") +
+    ggplot2::ggtitle("Relacion rendimiento con la altura") +
+  ggplot2::geom_point()
+```
+
+De ambos gráficos, obtenemos que no encontramos una relación significativa entre 
+el peso o la altura contra el rendimiento. Es decir, qye hay otas variables que 
+definen el rendimiento.
+
+6. ¿Existe alguna tendencia de los salarios en la MLB en los últimos 50 años?
+
+El salario más antiguo registrado data de 1985, por lo tanto solo se puede hacer el seguimiento de los últimos 31 años.
+
+```{r}
+dbGetQuery(conn, 
+           "SELECT yearID, salary salario
+           FROM salarios") %>% 
+  dplyr::group_by(yearID) %>% 
+  dplyr::summarise(sueldo = mean(salario)) %>% 
+  ggplot(aes(x = yearID, y = sueldo)) +
+  geom_line() +
+  geom_smooth(method = 'lm')
+```
+Así que existe una tendencia positva de creimiento en el salario de los jugadores
+en los últimos 50 años.
+
+7. ¿Existen disparidades salariales entre jugadores con diferentes antecedentes educativos?
+
+Por practicidad, solo consideremos a lo jugadores que tienen o no tienen 
+educación universitaria. 
+
+```{r}
+dbGetQuery(conn, 
+           "SELECT playerID, 
+           CASE WHEN playerID IN (SELECT DISTINCT playerID FROM escuelasJugadores
+           WHERE schoolID IS NOT NULL) THEN 1 
+           ELSE 0 END estudios,
+           SUM(salary) salario
+           FROM salarios
+           GROUP BY 1,2
+           ORDER BY 1") %>% 
+  dplyr::group_by(estudios) %>% 
+  dplyr::summarise(salario_promedio = mean(salario))
+```
+Por lo anterior, tenemos que sí existen disparidades en los salarios basados 
+en los antecedentes educativos de los jugadores. 
+
+
+8. ¿La asistencia a la universidad influye en el salario del primer año de un jugador?
+
+```{r}
+dbGetQuery(conn, 
+           "SELECT B.playerID, A.salary salario, A.yearID,
+           CASE WHEN B.playerID IN (SELECT DISTINCT playerID FROM escuelasJugadores) THEN 1 
+           ELSE 0 END estudios
+           FROM salarios A
+           RIGHT JOIN (SELECT playerID, MIN(yearID) year_min
+           FROM salarios GROUP BY 1) B
+           ON A.playerID = B.playerID AND A.yearID = B.year_min
+           ORDER BY B.playerID") %>% 
+  dplyr::group_by(estudios) %>% 
+  dplyr::summarise(promedio_salario_primer_anio = mean(salario),
+                   saldo = sum(salario),
+                   max = max(salario),
+                   min = min(salario))
+```
+
+```{r}
+salarios1 <- 
+  dbGetQuery(conn, 
+           "SELECT playerID, salary, yearID,
+           CASE WHEN playerID IN (SELECT DISTINCT playerID FROM escuelasJugadores
+           WHERE schoolID IS NOT NULL) THEN 1 
+           ELSE 0 END estudios
+           FROM salarios") %>% 
+  dplyr::mutate(year_debut = yearID)
+
+nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut))) %>% 
+  select(year_debut, playerID) %>% 
+  dplyr::left_join(salarios1, by = 'playerID') %>% 
+  filter(year_debut.x == year_debut.y) %>% 
+  select(yearID, playerID, salary, estudios) %>% 
+  group_by(estudios) %>% 
+  dplyr::summarise(avg = mean(salary),
+                   saldo = sum(salary),
+                   max = max(salary),
+                   min = min(salary))
+```
+
+Con base en los tabuladores anteriore, tenemos que la asistencia en la universidad
+influye en el salario del primer año del jugador. 
+
+9. ¿Hay alguna relación entre las estadísticas de rendimiento (promedio de bateo, home runs) y el salario?
+
+Como nota de la investigación de la simbología y signigicado de las columnas, si tu AB (número de bateos) es 0, significa que nunca se bateó. 
+
+
+```{r}
+dbGetQuery(conn, 
+           "SELECT B.playerID, SUM(B.H) H, SUM(B.AB) AB,
+           SUM(B.HR) HR, SUM(ifnull(S.salary,0)) salario
+           FROM bateo B
+           LEFT JOIN salarios S
+           ON B.playerID = S.playerID AND B.yearID = S.yearID
+           GROUP BY 1") %>%
+  dplyr::mutate(promedio_bateo = H/AB,
+                promedio_hr = HR/AB) %>% 
+  dplyr::filter(AB != 0) %>% 
+  dplyr::summarise(cor_bateo = cor(salario,promedio_bateo),
+                   cor_homerun = cor(salario,promedio_hr))
+  
+```
+
+Basándos en la correlación de, respecto a la relación de salario con el promedio de bateo no tenemos una corrlación fuerte
+(pues apenas es del 0.04). Por el otro lado, el salario y el núnero de home runs si tienen una correlación más 
+significativa. 
+
+10. ¿Los lanzadores ganan salarios significativamente diferentes a los bateadores?
+
+Los lanzadores ganan 2.5 millones de dolares menos (en promedio) que los bateadores.
+
+```{r}
+dbGetQuery(conn, 
+           "WITH BASE AS (SELECT playerID, 
+           CASE WHEN playerID IN (SELECT playerID FROM bateo
+           WHERE AB != 0) 
+           THEN 1 ELSE 0 END BAT,
+           CASE WHEN playerID IN (SELECT playerID FROM field
+           WHERE POS = 'P')
+           THEN 1 ELSE 0 END GUANTE, SUM(salary) salario 
+           FROM salarios
+           GROUP BY 1,2,3)
+           SELECT playerID, CASE WHEN BAT = 1 THEN 'B' 
+           ELSE 'L' END POS, salario
+           FROM (SELECT playerID,
+           CASE WHEN GUANTE = 1 THEN 0 ELSE BAT END BAT,
+           GUANTE, salario
+           FROM BASE)") %>% 
+  dplyr::group_by(POS) %>% 
+  dplyr::summarise(avg = mean(salario),
+                   saldo = sum(salario),
+                   max = max(salario),
+                   min = min(salario))
+```
+
+11. ¿Qué factores contribuyen a la inducción al Salón de la Fama?
+
+Conideremos factores simples para como el tiempo de carrera, el rendimiento de bateo y
+el pitcheo.
+
+```{r}
+# Los verdaderos jugadores que entraron al salon de la fama. 
+salon_fama_jugadores <- salonFama %>%
+  filter(category == "Player")
+
+# Rendimiento de bateo
+bateo_foo <- bateo |>
+  group_by(playerID) |>
+  summarise(
+    bateo_calculo = sum(HR, na.rm = TRUE),
+  )
+
+# años activos
+tiempo_carrera <- nombres %>%
+  mutate(
+    dias_carrera = lubridate::ymd(finalGame) - lubridate::ymd(debut)
+  )
+
+
+# Rendimiento de pitcheo
+pitcheo_foo <- pitcheo %>%
+  group_by(playerID) %>%
+  summarise(
+    pitcheo_calculo = sum(W, na.rm = TRUE)
+  )
+
+
+
+general_table_fama <- salon_fama_jugadores %>%
+  left_join(bateo_foo, by = "playerID") %>%
+  left_join(tiempo_carrera, by = "playerID") %>%
+  left_join(pitcheo_foo, by = "playerID")
+
+```
+Generamos algunos gráficos interesantes. 
+
+```{r}
+
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=dias_carrera)) +
+  ggplot2::ggtitle("Densidad del tiempo de carrera con base en los jugadores \n inducidos al salón de la fama")
+
+```
+De lo notado de esta gráfica, podemos ver que el tiempo de carrera de los jugadores que 
+son inducidos al salón de la fama, es mayor en media y que tiene una distribución diferenciada 
+de los que no.
+
+```{r}
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=bateo_calculo)) +
+  ggplot2::ggtitle("Densidad del bateo con base en los jugadores \n inducidos al salón de la fama")
+```
+
+Del calculo de numero de bateo, no tenemos una diferencia concluyente. 
+
+```{r}
+general_table_fama |> 
+  ggplot(aes(color = inducted)) +
+  ggplot2::geom_density(aes(x=pitcheo_calculo)) +
+  ggplot2::ggtitle("Densidad del bateo con base en los jugadores \n inducidos al salón de la fama")
+```
+
+Del calculo de numero de picheo, tenemos una diferencia en distribuciones donde la media es mayor para los jugadores 
+inducidos. Esto quiere decir que el pitcheo puede influye un poco en la decision de entrar al salón de la fama.
+
+12. ¿Existe una diferencia significativa en las tasas de entrada al Salón de la Fama entre lanzadores y bateadores?
+
+```{r}
+dbGetQuery(conn, 
+           "WITH BASE AS (SELECT playerID, 
+           CASE WHEN playerID IN (SELECT DISTINCT playerID FROM bateo
+           WHERE AB != 0) 
+           THEN 1 ELSE 0 END BAT,
+           CASE WHEN playerID IN (SELECT DISTINCT playerID FROM field
+           WHERE POS = 'P')
+           THEN 1 ELSE 0 END GUANTE, SUM(salary) salario 
+           FROM salarios
+           GROUP BY 1,2,3)
+           SELECT playerID, CASE WHEN BAT = 1 THEN 'B' 
+           ELSE 'L' END POS, salario,
+           CASE WHEN playerID IN (SELECT DISTINCT playerID FROM salonFama
+           WHERE inducted = 'Y') THEN 1 ELSE 0 END SF
+           FROM (SELECT playerID,
+           CASE WHEN GUANTE = 1 THEN 0 ELSE BAT END BAT,
+           GUANTE, salario
+           FROM BASE)") %>% 
+  dplyr::group_by(POS) %>% 
+  dplyr::summarise(tasa_entrada_salon_de_fama = sum(SF)/n())
+```
+Sí, existe una diferencia, puesto que encontramos una tasa más alta cuando son bateadores. 
+
+13. ¿El número de homeruns aumenta las probabilidades de ingresar al Salón de la Fama?
+
+```{r}
+dbGetQuery(conn, 
+           "SELECT playerID, SUM(HR) HR,
+           CASE WHEN playerID IN 
+           (SELECT DISTINCT playerID 
+           FROM salonFama
+           WHERE inducted = 'Y')
+           THEN 1 ELSE 0 END SF
+           FROM bateo
+           GROUP BY 1,3") %>% 
+  dplyr::summarise(COR_HRXSF = cor(HR,SF))
+```
+
+Dado que calculamos la correlación del número de home runs con la tasa de entrada y este valor fue positivo, 
+tenemos que sí aumenta la posibilidad de entrar al salón de la fama.
+
+
+14. ¿Los jugadores de ciertas décadas tienen más probabilidades de ser incluidos al Salón de la Fama?
+
+
+```{r}
+sf1 <- 
+  dbGetQuery(conn, 
+           "SELECT *
+           FROM salonFama
+           WHERE inducted = 'Y'
+           AND category = 'Player'") 
+
+tabla_decada_numero_salon_fama <- nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          decada = year_debut - year_debut %%10) %>% 
+  select(year_debut, decada, playerID) %>% 
+  dplyr::left_join(sf1, by = 'playerID') %>% 
+  filter(!is.na(inducted) & !is.na(year_debut)) %>% 
+  select(year_debut, decada, playerID) %>%
+  group_by(decada) %>% 
+  dplyr::summarise(n = n()) %>% 
+  arrange(desc(n))
+
+tabla_decada_numero_salon_fama |> head()
+
+tabla_decada_numero_salon_fama |> 
+  ggplot2::ggplot(aes(x = decada)) +
+  ggplot2::geom_point(aes(y = n)) +
+  ggplot2::ggtitle("Numero de jugadores inducidos por decada") +
+  ggplot2::labs(x = "Década", y = "Cantidad")
+```
+Aparentemente, la tabla nos indica que en la década de 1920, hubo una mayor cantidad
+de jugadores que fueron inducidos al salón de la fama. Para evitar una confusión 
+con el análisis, debemos comparar con la cantidad de jugadores que hubo por década. 
+
+```{r}
+
+sf <- 
+  dbGetQuery(conn, 
+           "SELECT *
+           FROM salonFama
+           WHERE category = 'Player'") 
+
+
+tabla_decada_numero_salon_fama_general<- nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          decada = year_debut - year_debut %%10) %>% 
+  select(year_debut, decada, playerID) %>% 
+  dplyr::left_join(sf, by = 'playerID') %>% 
+  filter(!is.na(inducted) & !is.na(year_debut)) %>% 
+  select(year_debut, decada, playerID) %>%
+  group_by(decada) %>% 
+  dplyr::summarise(n = n()) %>% 
+  arrange(desc(n))
+
+general_table_fama_by_decade <- tabla_decada_numero_salon_fama_general %>%
+  left_join(tabla_decada_numero_salon_fama, by = "decada") 
+
+
+general_table_fama_by_decade |>
+  mutate(proporcion = n.x / n.y) |> 
+  ggplot2::ggplot(aes(x = decada)) +
+  ggplot2::geom_point(aes(y = proporcion)) +
+  ggplot2::ggtitle("Porcentaje jugadores inducidos por decada") +
+  ggplot2::labs(x = "Década", y = "Porcentaje")
+
+```
+
+Con esta nueva gráfica, tenemos que en general, los primeras décadas de 1900, había un alza
+en porcentaje para ingresar a gente al salín de la fama.
+
+15. ¿Qué se puede decir del tiempo en el que un jugador empieza su carrera hasta que se vuelve miembro del Salón de la Fama?
+
+Los jugadores entran en el salon (mayormente) de la fama cuando tienen 25 años en el deporte, teniendo otros topes despues de 40 años. Sin embargo, también es común que despues de 20 años de retiro se tome en cuenta para ingresar alguien al salon.
+
+
+```{r}
+nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          year_FG = lubridate::year(lubridate::ymd(finalGame))) %>% 
+  select(year_debut, year_FG, playerID) %>% 
+  dplyr::left_join(sf1, by = 'playerID') %>% 
+  filter(!is.na(inducted) & !is.na(year_debut)) %>% 
+  select(year_debut, yearID, year_FG, playerID) %>% 
+  dplyr::mutate(year_actives = year_FG - year_debut,
+                year_retirement = yearID - year_FG) %>% 
+  dplyr::summarise(year_actives_avg = mean(year_actives),
+                   year_retirement_avg = mean(year_retirement))
+```
+
+```{r}
+datos <- nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          year_FG = lubridate::year(lubridate::ymd(finalGame))) %>% 
+  select(year_debut, year_FG, playerID) %>% 
+  dplyr::left_join(sf1, by = 'playerID') %>% 
+  filter(!is.na(inducted) & !is.na(year_debut)) %>%
+  mutate(year_salon = yearID - year_debut) %>% 
+  select(year_salon, playerID)
+```
+
+
+```{r}
+ggplot(datos, aes(x = year_salon)) +
+  geom_histogram(binwidth = 5, fill = "purple", color = "black")  +
+  geom_density(aes(y = ..count.. * 5), color = "red", size = 1) +
+  scale_x_continuous(
+    breaks = seq(0, 100, by = 5),          
+    minor_breaks = seq(0, 100, by = 1),    
+    limits = c(0, 100),                    
+    expand = expansion(mult = c(0, 0.02))  ) +
+labs(title = "Distribución del tiempo desde el debut hasta el ingreso al Salón de la Fama",
+       x = "Años desde el debut",
+       y = "Frecuencia") +
+  theme_minimal()
+```
+
+
+16. ¿Cómo se relaciona el rendimiento en su primera temporada con la duración de su carrera?
+
+Dividimos el rendimiento por el tipo de jugador, es decir, bateador, pitcher y jardinero, ya que es muy subjetivo medir el rendimiento de estos puestos y no se pueden calificar por igual. Las correlaciones de su tiempo de carrera y su rendimiento nos indican que no hay relación considerable entre las variables.
+
+```{r}
+nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          year_FG = lubridate::year(lubridate::ymd(finalGame))) %>%
+  dplyr::left_join(bateo, by = 'playerID') %>% 
+  dplyr::filter(yearID == year_debut & AB != 0) %>% 
+  dplyr::mutate(rendimiento =  H / AB,
+                carrera = year_FG -year_debut) %>% 
+  dplyr::select(year_debut, playerID, rendimiento, carrera) %>% 
+  dplyr::summarise(cor(rendimiento,carrera))
+```
+
+```{r}
+nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          year_FG = lubridate::year(lubridate::ymd(finalGame))) %>%
+  dplyr::left_join(pitcheo, by = 'playerID') %>% 
+  dplyr::filter(yearID == year_debut & W+L != 0) %>% 
+  dplyr::mutate(rendimiento =  W / (W+L),
+                carrera = year_FG -year_debut) %>% 
+  dplyr::select(year_debut, playerID, rendimiento, carrera) %>% 
+  dplyr::summarise(cor(rendimiento,carrera))
+```
+
+```{r}
+nombres %>% dplyr::mutate(year_debut = lubridate::year(lubridate::ymd(debut)),
+                          year_FG = lubridate::year(lubridate::ymd(finalGame))) %>%
+  dplyr::left_join(field, by = 'playerID') %>% 
+  dplyr::filter(yearID == year_debut & PO+A+E != 0) %>% 
+  dplyr::mutate(rendimiento =  (PO+A) / (PO+A+E),
+                carrera = year_FG -year_debut) %>% 
+  dplyr::select(year_debut, playerID, rendimiento, carrera) %>% 
+  dplyr::summarise(cor(rendimiento,carrera))
+```
+
+
+17. ¿Las estadísticas de fielding se relacionan con la duración total de la carrera?
+
+Para ver que las estadísticas de la tabla `field` se relacionen con al duración total de la 
+carrera de un jugador, podemos obtener, de mínimo, las correalaciones entre las variables. 
+
+```{r}
+tabla_carreras_playerID <- nombres |> dplyr::mutate(tiempo_jugado = lubridate::ymd(finalGame) - lubridate::ymd(debut)) |> select(playerID, tiempo_jugado)
+
+
+tabla_datos_fielding <- field |> group_by(playerID) |>
+  dplyr::summarise(G_mean = mean(G,na.rm = TRUE),
+                   GS_mean = mean(GS,na.rm = TRUE),
+                   InnOuts_mean = mean(InnOuts,na.rm = TRUE),
+                   PO_mean = mean(PO,na.rm = TRUE),
+                   A_mean = mean(A, na.rm = TRUE),
+                   E_mean = mean(E, na.rm = TRUE),
+                   DP_mean = mean(DP, na.rm = TRUE),)
+#tabla_datos_fielding
+
+general_table_fielding <- tabla_carreras_playerID |>
+  left_join(tabla_datos_fielding, by = "playerID") |>
+  mutate(tiempo_jugado = as.numeric(tiempo_jugado))
+general_table_fielding[,c(2,3,4,5,6,7,8,9)] |> cor(use = "complete.obs")
+```
+
+De lo cual, obtenemos correlaciones mayores o cercanas al 0.3 respecto a el tiempo jugado. Lo cual significa
+que las estadísticas de fielding se relacionan con la duración total de la carrera. 
+
+18. ¿Cuál es la probabilidad de que un jugador llegue a las Grandes Ligas según sus estadísticas universitarias?
+
+Definamos dos cosas antes de responder esta pregunta. Nos vamos a referir que un jugador llegó a las grandes ligas
+es cuando aparece en la tabla de bateo o pitcheo. Y vamos a suponer que nos vamos referir a estadísticas universitarias 
+al hecho de que el jugador aparezca en la tabla escuelasJugadores. 
+
+```{r}
+
+jugadores_universitarios <- escuelasJugadores |> 
+  select(playerID) |>
+  distinct(playerID)
+
+bateadores_mlb <- bateo |> 
+  select(playerID) |>
+  distinct(playerID) 
+
+pitcchers_mlb <- pitcheo |> 
+  select(playerID) |>
+  distinct(playerID) 
+
+jugadores_universitarios_mlb <- jugadores_universitarios |> 
+  mutate(es_mlb = playerID %in% bateadores_mlb$playerID |  playerID %in% pitcchers_mlb$playerID) |>
+  filter(es_mlb == TRUE)
+
+prob <- nrow(jugadores_universitarios_mlb) / nrow(jugadores_universitarios)
+prob
+```
+
+
+Tenemos que la probabilidad es 0.9957. Este resultado puede deberse a que la base de datos 
+incluye practicamente a jugadores de la MLB y no a jugadores universitarios en general. 
+
+
+19. ¿Existen grupos de jugadores con trayectorias profesionales similares según métricas de rendimiento?
+
+Carguemos algunas métricas de bateo y pitcheo para encontrar grupos a través de clustering
+
+```{r}
+bateo_cluster <- bateo |>
+  group_by(playerID) |>
+  summarise(AB = mean(AB, na.rm = TRUE),
+            H = mean(H, na.rm = TRUE),
+            RBI = mean(RBI, na.rm = TRUE),
+            HR = mean(HR, na.rm = TRUE)) %>%
+  collect()
+
+pitcheo_cluster <- pitcheo |>
+  group_by(playerID) |>
+  summarise(W = mean(W, na.rm = TRUE),
+            L = mean(L, na.rm = TRUE),
+            SO = mean(SO, na.rm = TRUE),
+            ERA = mean(ERA, na.rm = TRUE)) |>
+  collect()
+
+
+rendimiento <- full_join(bateo_cluster, pitcheo_cluster, by = "playerID") %>%
+  replace(is.na(.), 0)
+
+#Normalizamos los datos
+rendimiento_scaled <- rendimiento %>%
+  select(-playerID) %>%
+  scale()
+
+# De aquí obtenemos 4 grupos por medio del gráfico
+factoextra::fviz_nbclust(datos_escalados, kmeans, method = "wss")
+
+
+set.seed(42)
+km <- kmeans(rendimiento_scaled, centers = 4, nstart = 25)
+
+# Añadir el grupo al dataset
+rendimiento$cluster <- factor(km$cluster)
+
+# Visualizar los grupos
+fviz_cluster(km, data = rendimiento_scaled, geom = "point", ellipse.type = "convex",
+             main = "Clustering de Jugadores por Métricas de Rendimiento")
+
+group_summary <- rendimiento %>%
+  group_by(cluster) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE))
+
+print(group_summary)
+
+```
+Basados en el método de k-means, podemos decir que sí hay grupos de jugadores con rendimientos similares.
+
+
+20. ¿Cómo afecta el rendimiento de un jugador en sus mejores años a sus ganancias totales en la carrera?
+
+```{r}
+# Calcular un índice de rendimiento por año: 
+rendimiento <- bateo %>%
+  group_by(playerID, yearID) %>%
+  summarise(
+    H = sum(H, na.rm = TRUE),
+    HR = sum(HR, na.rm = TRUE),
+    RBI = sum(RBI, na.rm = TRUE),
+    AB = sum(AB, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(AB > 0) %>%
+  mutate(rendimiento_index = (H + HR + RBI) / AB) # Esta métrica nos indica sis hits importantes contras las posibilidades que tuvo
+
+# El mejor año de cada jugador
+mejores_anos <- rendimiento %>%
+  group_by(playerID) %>%
+  arrange(desc(rendimiento_index)) %>%
+  slice(1) %>%
+  ungroup()
+
+# Calcular las ganancias
+ganancias <- salarios %>%
+  group_by(playerID) %>%
+  summarise(ganancia_total = mean(salary, na.rm = TRUE), .groups = "drop")
+
+
+analisis <- full_join(mejores_anos, ganancias, by = "playerID")
+
+# Calcular la correlación
+cor(analisis$rendimiento_index, analisis$ganancia_total, use = "complete.obs")
+
+ggplot(analisis, aes(x = rendimiento_index, y = ganancia_total)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", col = "blue", se = FALSE) +
+  labs(
+    title = "Rendimiento en el mejor año vs. Ganancia",
+    x = "Rendimiento",
+    y = "Ganancia"
+  ) +
+  ggplot2::scale_x_continuous(labels = numero_completo, transform = "log10") +
+  ggplot2::scale_y_continuous(labels = numero_completo, transform = "log10") +
+  theme_minimal()
+
+```
+Si bien no cuenta con una correlación fuerte, tenemos 0.1 en la correlacion de pearson, 
+tenemos una correlación positiva. Esto quiere decir que el rendimiento de un jugador en su mejor año puede 
+afectar de forma positiva a sus ganancias.

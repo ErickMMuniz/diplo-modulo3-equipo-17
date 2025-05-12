@@ -17,3 +17,20 @@ library(RSQLite)
 
 conn <- DBI::dbConnect(RSQLite::SQLite(), "baseball.db")
 ```
+
+3. Colaborador 1: Desde su máquina crear chunks de código R en el archivo "proyecto_final.Rmd" (que obtuvo del Administrador) que muestre el número de tablas y sus nombres de la base de datos "baseball"; además, crear un objeto en R, un por cada tabla de la base de datos. Hacer commit y push del código al repositorio del administrador y hacer un pull request.
+
+```{r}
+dbListTables(conn)
+```
+
+```{r}
+bateo <- dbGetQuery(conn, "SELECT * FROM bateo") 
+escuelas <- dbGetQuery(conn, "SELECT * FROM escuelas")
+escuelasJugadores <- dbGetQuery(conn, "SELECT * FROM escuelasJugadores")
+field <- dbGetQuery(conn, "SELECT * FROM field")
+nombres <- dbGetQuery(conn, "SELECT * FROM nombres")
+pitcheo <- dbGetQuery(conn, "SELECT * FROM pitcheo")
+salarios <- dbGetQuery(conn, "SELECT * FROM salarios")
+salonFama <- dbGetQuery(conn, "SELECT * FROM salonFama")
+``` 
